@@ -6,7 +6,7 @@ use std::{
     fmt,
     fs::File,
     io::{BufRead, Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 use structopt::StructOpt;
 
@@ -29,6 +29,7 @@ enum Command {
         #[structopt(long)]
         commitment: Option<String>,
     },
+    Digest,
 }
 
 type DynResult<T> = Result<T, Box<dyn Error>>;
@@ -36,7 +37,7 @@ type DynResult<T> = Result<T, Box<dyn Error>>;
 fn main() -> DynResult<()> {
     let options = Options::from_args();
 
-    let mut stdin = std::io::stdin();
+    let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
 
     match options.command {
@@ -49,6 +50,14 @@ fn main() -> DynResult<()> {
             do_lottery(&secret, stdin.lock(), &mut stdout)
         }
         Command::Verify { commitment } => do_verify(stdin, commitment.as_ref()),
+        Command::Digest => {
+            for line in stdin.lock().lines() {
+                let line = line?;
+                let hash = Hash::of(&[line.as_bytes()]);
+                writeln!(stdout, "{} \"{}\"", hash.to_string(), line)?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -153,15 +162,36 @@ impl ToString for Hash {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Outcome {
-    ordered_entries: Vec<(Hash, String)>,
+    ordered_entries: Vec<Entry>,
     secret: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Entry {
+    entrant: String,
+    ticket: Hash,
+}
+
+impl PartialOrd for Entry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.ticket.partial_cmp(&other.ticket)
+    }
+}
+
+impl Ord for Entry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.ticket.cmp(&other.ticket)
+    }
+}
+
 impl Outcome {
-    fn generate(entries: Vec<String>, secret: Vec<u8>) -> Outcome {
-        let mut hashed_entries = entries
+    fn generate(entrants: Vec<String>, secret: Vec<u8>) -> Outcome {
+        let mut hashed_entries = entrants
             .into_iter()
-            .map(|entry| (Hash::of(&[&entry.as_bytes(), &secret]), entry))
+            .map(|entrant| Entry {
+                ticket: Hash::of(&[&entrant.as_bytes(), &secret]),
+                entrant,
+            })
             .collect::<Vec<_>>();
         hashed_entries.sort();
         Outcome {
@@ -171,7 +201,12 @@ impl Outcome {
     }
 
     fn verify(&self) {
-        let entries = self.ordered_entries.iter().map(|(_, e)| e).cloned().collect();
+        let entries = self
+            .ordered_entries
+            .iter()
+            .map(|e| &e.entrant)
+            .cloned()
+            .collect();
         let generated = Outcome::generate(entries, self.secret.clone());
         assert_eq!(self, &generated);
     }
