@@ -1,7 +1,10 @@
 [package]
 name = "verilot"
+description = "Command line tool for running and checking verifiable lotteries."
 version = "0.1.0"
 edition = "2018"
+license = "MIT"
+repository = "https://github.com/shelbyd/verilot"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
